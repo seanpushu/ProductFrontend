@@ -1,6 +1,6 @@
 import { render, screen, fireEvent } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App, PAGE_SIZE } from "./App";
 import { formatPrice, type Product } from "./api";
 
@@ -38,6 +38,14 @@ describe("formatPrice", () => {
 });
 
 describe("App", () => {
+  // Pin the API URL so a VITE_API_BASE_URL left in the shell cannot change the test.
+  beforeEach(() => {
+    vi.stubEnv("VITE_API_BASE_URL", "http://api.test");
+  });
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
   it("calls GET /products with limit/offset and renders items", async () => {
     const fetchFn = mockFetch(json({ items: [product()], total: 1, limit: PAGE_SIZE, offset: 0 }));
     render(<App />);

@@ -33,7 +33,7 @@ export function App() {
       <header className="top">
         <p className="eyebrow">Product Service</p>
         <h1>Product Catalog</h1>
-        <p className="subtitle">Live products from the catalog database.</p>
+        <p className="subtitle">Live products from the catalog database, deployed automatically from GitHub.</p>
       </header>
       <main aria-busy={state.kind === "loading"}>
         <Content state={state} onRetry={retry} onPage={setOffset} />
