@@ -1,0 +1,97 @@
+name: Deploy
+
+# Every push to main: CI first, then build with the real API URL, upload to the
+# private site bucket, invalidate CloudFront and check the live page.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: productfrontend-deploy
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: us-east-1
+
+jobs:
+  ci:
+    uses: ./.github/workflows/ci.yml
+
+  deploy:
+    name: Build, upload, invalidate, verify
+    needs: ci
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      BUCKET: ${{ vars.SITE_BUCKET }}
+      DISTRIBUTION_ID: ${{ vars.DISTRIBUTION_ID }}
+      SITE_URL: ${{ vars.SITE_URL }}
+      VITE_API_BASE_URL: ${{ vars.API_BASE_URL }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+
+      - name: Check configuration
+        run: |
+          for v in BUCKET DISTRIBUTION_ID SITE_URL VITE_API_BASE_URL; do
+            [ -n "${!v}" ] || { echo "Missing repository variable for $v"; exit 1; }
+          done
+          # Guard: only ever deploy into this project's own site bucket.
+          case "$BUCKET" in productfrontend-site-*) ;; *) echo "Refusing to deploy to bucket $BUCKET"; exit 1;; esac
+          case "$VITE_API_BASE_URL" in https://*) ;; *) echo "API URL must be https"; exit 1;; esac
+
+      - run: npm ci
+      - name: Build
+        run: |
+          npm run build
+          echo "$GITHUB_SHA" > dist/version.txt
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+          role-session-name: productfrontend-${{ github.run_id }}
+
+      - name: Upload to S3
+        run: |
+          echo "commit=$GITHUB_SHA bucket=$BUCKET distribution=$DISTRIBUTION_ID"
+          # Hashed assets: cache for a year. Upload first so new HTML never points at missing files.
+          aws s3 sync dist/assets "s3://$BUCKET/assets" --cache-control "public,max-age=31536000,immutable"
+          # HTML and version marker: always revalidate.
+          aws s3 cp dist/index.html "s3://$BUCKET/index.html" --cache-control "no-cache" --content-type "text/html; charset=utf-8"
+          aws s3 cp dist/version.txt "s3://$BUCKET/version.txt" --cache-control "no-cache" --content-type "text/plain"
+          # Remove old hashed assets only under this bucket's assets/ prefix.
+          aws s3 sync dist/assets "s3://$BUCKET/assets" --delete --cache-control "public,max-age=31536000,immutable"
+
+      - name: Invalidate CloudFront (HTML only)
+        run: |
+          ID=$(aws cloudfront create-invalidation --distribution-id "$DISTRIBUTION_ID" \
+            --paths "/index.html" "/" "/version.txt" --query Invalidation.Id --output text)
+          aws cloudfront wait invalidation-completed --distribution-id "$DISTRIBUTION_ID" --id "$ID"
+          echo "invalidation $ID completed"
+
+      - name: Verify live site serves this commit
+        run: |
+          for i in $(seq 1 20); do
+            LIVE=$(curl -fsS "$SITE_URL/version.txt" | tr -d '[:space:]' || true)
+            [ "$LIVE" = "$GITHUB_SHA" ] && break
+            sleep 6
+          done
+          [ "$LIVE" = "$GITHUB_SHA" ] || { echo "Live version is '$LIVE', expected $GITHUB_SHA"; exit 1; }
+          JS=$(curl -fsS "$SITE_URL/" | grep -o '/assets/index-[^"]*\.js' | head -1)
+          [ -n "$JS" ] || { echo "index.html has no script"; exit 1; }
+          curl -fsS "$SITE_URL$JS" | grep -q "$VITE_API_BASE_URL" || { echo "Bundle does not use $VITE_API_BASE_URL"; exit 1; }
+          curl -fsS -o /dev/null -H "Origin: $SITE_URL" -D headers.txt "$VITE_API_BASE_URL/products?limit=1"
+          grep -qi "access-control-allow-origin: $SITE_URL" headers.txt || { echo "API does not allow CORS from $SITE_URL"; exit 1; }
+          echo "Deployed $GITHUB_SHA to $SITE_URL" >> "$GITHUB_STEP_SUMMARY"

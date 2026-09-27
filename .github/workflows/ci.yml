@@ -1,0 +1,31 @@
+name: CI
+
+# Pull requests, and called by deploy.yml for every push to main.
+# No AWS credentials; tests mock HTTP, the build uses a placeholder API URL.
+on:
+  pull_request:
+    branches: [main]
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Typecheck, test, build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+        env:
+          VITE_API_BASE_URL: https://api.example.invalid
+      - name: cfn-lint
+        run: pipx run cfn-lint==1.22.0 infra/*.yml

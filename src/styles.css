@@ -1,0 +1,70 @@
+:root {
+  --ink: #1d1a16;
+  --muted: #5f574f;
+  --paper: #f3efe6;
+  --card: #fffdf8;
+  --line: #e2d9cc;
+  --green: #1f6b4a;
+  --green-dark: #144833;
+  --gold: #8a5a1c;
+  --error: #9a3412;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  color: var(--ink);
+  background: var(--paper);
+  font-family: "Segoe UI", system-ui, -apple-system, "PingFang SC", sans-serif;
+  line-height: 1.45;
+  overflow-x: hidden;
+}
+.top { padding: 28px 40px 8px; }
+.eyebrow { margin: 0; letter-spacing: 0.08em; text-transform: uppercase; color: var(--gold); font-size: 12px; }
+h1 { margin: 4px 0 0; font-family: Georgia, "Songti SC", serif; font-weight: 500; font-size: 40px; }
+.subtitle { margin: 6px 0 0; color: var(--muted); }
+main { padding: 12px 40px 48px; max-width: 1200px; }
+.count { color: var(--muted); margin: 0 0 12px; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 16px; }
+.card {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  overflow: hidden;
+}
+.card-image { display: block; width: 100%; aspect-ratio: 4 / 3; object-fit: cover; background: #ece4d6; }
+.placeholder { display: flex; align-items: center; justify-content: center; color: var(--muted); font-size: 14px; }
+.card-body { padding: 14px 16px 16px; }
+.card-title { margin: 0 0 6px; font-size: 17px; font-weight: 600; overflow-wrap: anywhere; }
+.card-description {
+  margin: 0 0 10px;
+  color: var(--muted);
+  font-size: 14px;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.price { margin: 0; color: var(--green-dark); font-weight: 650; font-size: 18px; }
+.status { padding: 32px 0; color: var(--muted); }
+.status.error { color: var(--error); }
+button {
+  border: 1px solid var(--line);
+  background: var(--card);
+  color: var(--ink);
+  border-radius: 999px;
+  padding: 8px 16px;
+  font: inherit;
+  cursor: pointer;
+}
+button:disabled { opacity: 0.5; cursor: not-allowed; }
+button:focus-visible { outline: 3px solid var(--gold); outline-offset: 2px; }
+.primary { background: var(--green); color: #fff; border-color: var(--green); }
+.pager { display: flex; gap: 8px; justify-content: center; margin-top: 24px; }
+@media (max-width: 640px) {
+  .top, main { padding-left: 16px; padding-right: 16px; }
+  h1 { font-size: 30px; }
+  .grid { grid-template-columns: 1fr; }
+}
