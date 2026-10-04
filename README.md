@@ -26,7 +26,18 @@ npm run build     # needs VITE_API_BASE_URL
 ```
 
 Tests cover: request URL with `limit`/`offset`, price formatting from integer cents (1299 -> $12.99),
-loading, empty list, HTTP error and network error with retry, broken / missing images, pagination.
+loading, empty list, HTTP error and network error with retry, broken / missing images, pagination,
+and the sign-in UI (register -> confirm -> sign in -> `/me`, wrong password, unconfirmed account,
+session restore on reload, one refresh retry on 401, sign-out). HTTP is mocked in tests.
+
+## Accounts (User Service)
+
+The header has **Sign in** / **Create account**. Forms call the User Service
+(`VITE_AUTH_BASE_URL`, local `http://localhost:8081`; empty in production = same origin through CloudFront):
+register (email, password, confirm password checked in the browser only) -> email code -> sign in ->
+"My profile" from `GET /me` -> sign out. Access tokens are kept in memory; the refresh token is an
+HttpOnly cookie the page cannot read. Every POST sends `X-CSRF-Token` and `credentials: "include"`.
+The catalog stays public: anonymous visitors can browse without signing in.
 
 ## Behaviour
 

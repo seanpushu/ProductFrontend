@@ -17,11 +17,25 @@ const product = (over: Partial<Product> = {}): Product => ({
   ...over,
 });
 
+// Product requests get the queued responses in order. Auth requests made by
+// AuthProvider on page load (no session here) answer 401 and do not consume them.
 function mockFetch(...responses: Array<() => Promise<Response>>) {
-  const fn = vi.fn();
-  responses.forEach((r) => fn.mockImplementationOnce(r));
-  vi.stubGlobal("fetch", fn);
-  return fn;
+  const queue = [...responses];
+  const products = vi.fn((input: RequestInfo | URL) => {
+    void input;
+    const next = queue.shift();
+    return next ? next() : Promise.reject(new Error("unexpected product request"));
+  });
+  vi.stubGlobal(
+    "fetch",
+    vi.fn((input: RequestInfo | URL) => {
+      if (String(input).startsWith("http://auth.test")) {
+        return Promise.resolve(new Response(JSON.stringify({ code: "SESSION_INVALID" }), { status: 401 }));
+      }
+      return products(input);
+    }),
+  );
+  return products;
 }
 const json = (body: unknown, status = 200) => () =>
   Promise.resolve(new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } }));
@@ -41,6 +55,7 @@ describe("App", () => {
   // Pin the API URL so a VITE_API_BASE_URL left in the shell cannot change the test.
   beforeEach(() => {
     vi.stubEnv("VITE_API_BASE_URL", "http://api.test");
+    vi.stubEnv("VITE_AUTH_BASE_URL", "http://auth.test");
   });
   afterEach(() => {
     vi.unstubAllEnvs();
