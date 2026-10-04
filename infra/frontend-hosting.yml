@@ -15,6 +15,13 @@ Parameters:
   GitHubOidcProviderArn:
     Type: String
     Description: Existing IAM OIDC provider for token.actions.githubusercontent.com
+  AuthOriginDomain:
+    Type: String
+    Default: ''
+    Description: HTTPS host of the User Service (e.g. api.shupu.me). Empty = no auth routes.
+
+Conditions:
+  HasAuthOrigin: !Not [!Equals [!Ref AuthOriginDomain, '']]
 
 Resources:
   SiteBucket:
@@ -55,6 +62,24 @@ Resources:
           FrameOptions: {FrameOption: DENY, Override: true}
           ReferrerPolicy: {ReferrerPolicy: strict-origin-when-cross-origin, Override: true}
 
+  # Zero-TTL cache policy for the auth API: every request goes to the origin and
+  # nothing (including /me or Set-Cookie responses) is shared between users.
+  AuthNoCache:
+    Type: AWS::CloudFront::CachePolicy
+    Condition: HasAuthOrigin
+    Properties:
+      CachePolicyConfig:
+        Name: !Sub '${AWS::StackName}-auth-no-cache'
+        MinTTL: 0
+        DefaultTTL: 0
+        MaxTTL: 0
+        ParametersInCacheKeyAndForwardedToOrigin:
+          EnableAcceptEncodingGzip: false
+          EnableAcceptEncodingBrotli: false
+          HeadersConfig: {HeaderBehavior: none}
+          CookiesConfig: {CookieBehavior: none}
+          QueryStringsConfig: {QueryStringBehavior: none}
+
   Distribution:
     Type: AWS::CloudFront::Distribution
     Properties:
@@ -69,6 +94,15 @@ Resources:
             DomainName: !GetAtt SiteBucket.RegionalDomainName
             OriginAccessControlId: !GetAtt OriginAccessControl.Id
             S3OriginConfig: {OriginAccessIdentity: ''}
+          # Auth API on the same site as the page, so the refresh cookie is first-party.
+          - !If
+            - HasAuthOrigin
+            - Id: auth-api
+              DomainName: !Ref AuthOriginDomain
+              CustomOriginConfig:
+                OriginProtocolPolicy: https-only
+                OriginSSLProtocols: [TLSv1.2]
+            - !Ref AWS::NoValue
         DefaultCacheBehavior:
           TargetOriginId: site
           ViewerProtocolPolicy: redirect-to-https
@@ -77,10 +111,21 @@ Resources:
           # AWS managed "CachingOptimized"; per-object Cache-Control from the deploy decides HTML vs assets.
           CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6
           ResponseHeadersPolicyId: !Ref SecurityHeaders
-        # Single-page catalog without client routing: a missing key just shows index.html.
-        CustomErrorResponses:
-          - {ErrorCode: 403, ResponseCode: 200, ResponsePagePath: /index.html, ErrorCachingMinTTL: 10}
-          - {ErrorCode: 404, ResponseCode: 200, ResponsePagePath: /index.html, ErrorCachingMinTTL: 10}
+        # Auth endpoints: never cached (all TTLs 0), all methods, viewer headers /
+        # cookies / query forwarded (AllViewerExceptHostHeader so the origin sees
+        # api.shupu.me, matching its certificate).
+        CacheBehaviors: !If
+          - HasAuthOrigin
+          - - {PathPattern: /register, TargetOriginId: auth-api, ViewerProtocolPolicy: https-only, AllowedMethods: [GET, HEAD, OPTIONS, PUT, PATCH, POST, DELETE], CachePolicyId: !Ref AuthNoCache, OriginRequestPolicyId: b689b0a8-53d0-40ab-baf2-68738e2966ac, Compress: true}
+            - {PathPattern: /confirm*, TargetOriginId: auth-api, ViewerProtocolPolicy: https-only, AllowedMethods: [GET, HEAD, OPTIONS, PUT, PATCH, POST, DELETE], CachePolicyId: !Ref AuthNoCache, OriginRequestPolicyId: b689b0a8-53d0-40ab-baf2-68738e2966ac, Compress: true}
+            - {PathPattern: /login, TargetOriginId: auth-api, ViewerProtocolPolicy: https-only, AllowedMethods: [GET, HEAD, OPTIONS, PUT, PATCH, POST, DELETE], CachePolicyId: !Ref AuthNoCache, OriginRequestPolicyId: b689b0a8-53d0-40ab-baf2-68738e2966ac, Compress: true}
+            - {PathPattern: /refresh, TargetOriginId: auth-api, ViewerProtocolPolicy: https-only, AllowedMethods: [GET, HEAD, OPTIONS, PUT, PATCH, POST, DELETE], CachePolicyId: !Ref AuthNoCache, OriginRequestPolicyId: b689b0a8-53d0-40ab-baf2-68738e2966ac, Compress: true}
+            - {PathPattern: /logout, TargetOriginId: auth-api, ViewerProtocolPolicy: https-only, AllowedMethods: [GET, HEAD, OPTIONS, PUT, PATCH, POST, DELETE], CachePolicyId: !Ref AuthNoCache, OriginRequestPolicyId: b689b0a8-53d0-40ab-baf2-68738e2966ac, Compress: true}
+            - {PathPattern: /me, TargetOriginId: auth-api, ViewerProtocolPolicy: https-only, AllowedMethods: [GET, HEAD, OPTIONS, PUT, PATCH, POST, DELETE], CachePolicyId: !Ref AuthNoCache, OriginRequestPolicyId: b689b0a8-53d0-40ab-baf2-68738e2966ac, Compress: true}
+            - {PathPattern: /auth/*, TargetOriginId: auth-api, ViewerProtocolPolicy: https-only, AllowedMethods: [GET, HEAD, OPTIONS, PUT, PATCH, POST, DELETE], CachePolicyId: !Ref AuthNoCache, OriginRequestPolicyId: b689b0a8-53d0-40ab-baf2-68738e2966ac, Compress: true}
+          - !Ref AWS::NoValue
+        # No CustomErrorResponses: the catalog has no client-side routes, and a
+        # global 403/404 -> index.html rule would turn API auth errors into a 200 page.
 
   # Only this distribution may read the bucket.
   SiteBucketPolicy:

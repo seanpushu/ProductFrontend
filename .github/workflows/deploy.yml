@@ -35,6 +35,10 @@ jobs:
       DISTRIBUTION_ID: ${{ vars.DISTRIBUTION_ID }}
       SITE_URL: ${{ vars.SITE_URL }}
       VITE_API_BASE_URL: ${{ vars.API_BASE_URL }}
+      # Empty = auth requests go to the page's own origin (CloudFront routes them to the User Service).
+      VITE_AUTH_BASE_URL: ''
+      # Accounts UI ships only once the auth routes exist (repo variable, default off).
+      VITE_AUTH_ENABLED: ${{ vars.AUTH_ROUTES_ENABLED == 'true' && 'true' || 'false' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -94,4 +98,12 @@ jobs:
           curl -fsS "$SITE_URL$JS" | grep -q "$VITE_API_BASE_URL" || { echo "Bundle does not use $VITE_API_BASE_URL"; exit 1; }
           curl -fsS -o /dev/null -H "Origin: $SITE_URL" -D headers.txt "$VITE_API_BASE_URL/products?limit=1"
           grep -qi "access-control-allow-origin: $SITE_URL" headers.txt || { echo "API does not allow CORS from $SITE_URL"; exit 1; }
+          # Auth routes are optional until the User Service is deployed. When they exist,
+          # /me must reach the API (401 JSON, no-store) instead of a cached HTML page.
+          if [ "${{ vars.AUTH_ROUTES_ENABLED }}" = "true" ]; then
+            CODE=$(curl -s -o me.json -D me.h -w '%{http_code}' "$SITE_URL/me")
+            [ "$CODE" = "401" ] || { echo "/me via CloudFront returned $CODE"; exit 1; }
+            grep -qi "cache-control: no-store" me.h || { echo "/me is cacheable"; exit 1; }
+            grep -q '"code"' me.json || { echo "/me did not return API JSON"; exit 1; }
+          fi
           echo "Deployed $GITHUB_SHA to $SITE_URL" >> "$GITHUB_STEP_SUMMARY"

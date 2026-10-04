@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { fetchProducts, type ProductPage } from "./api";
+import { AuthBar } from "./auth/AuthPanel";
+import { AuthProvider } from "./auth/AuthProvider";
 import { ProductCard } from "./ProductCard";
 
 export const PAGE_SIZE = 12;
@@ -29,16 +31,19 @@ export function App() {
   const retry = useCallback(() => setAttempt((n) => n + 1), []);
 
   return (
-    <>
+    <AuthProvider>
       <header className="top">
-        <p className="eyebrow">Product Service</p>
-        <h1>Product Catalog</h1>
-        <p className="subtitle">Live products from the catalog database, deployed automatically from GitHub.</p>
+        <div>
+          <p className="eyebrow">Product Service</p>
+          <h1>Product Catalog</h1>
+          <p className="subtitle">Customizable apparel and accessories, ready for your own design.</p>
+        </div>
+        <AuthBar />
       </header>
       <main aria-busy={state.kind === "loading"}>
         <Content state={state} onRetry={retry} onPage={setOffset} />
       </main>
-    </>
+    </AuthProvider>
   );
 }
 
